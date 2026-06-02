@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <script>
+        {
+            const groups = $GROUPS_GO_HERE$
+            const institutions = $INSTITUTIONS_GO_HERE$
+
+            function all(sel) { return document.querySelectorAll(sel); }
+            function one(sel) { return document.querySelector(sel); }
+            function inc(map, key) {
+                map.set(key, map.has(key) ? map.get(key) + 1 : 1);
+            }
+            function getz(map, key, z) {
+                return map.has(key) ? map.get(key) : z;
+            }
+
+            const filters = {
+                institution: new Set(),
+                year: new Set(),
+            };
+
+            const counts = {
+                institution: new Map(),
+                year: new Map(),
+            };
+
+            let last_lang = "??";
+
+            // refilter based on current filters. Also updates total counts
+            function do_filter() {
+                console.log("filtering: institutions=", ...filters.institution, "years=", ...filters.year)
+                const institutions = new Map();
+                const years = new Map();
+                let total = 0;
+
+                all("div.project").forEach(i => {
+                    let yearOk = filters.year.size === 0 || false
+                    if ( ! yearOk) {
+                        for (let y of filters.year.values()) {
+                            console.log("for ", i, "checking year ", y, " against ", i.dataset.start, "-", i.dataset.end)
+                            if (+i.dataset.start <= +y && +i.dataset.end >= +y) {
+                                yearOk = true;
+                                console.log("year ok!")
+                                break;
+                            }
+                        }
+                    }
+                    const institutionOk = filters.institution.size === 0 || 
+                        filters.institution.has(i.dataset.institution)
+                    
+                    if (yearOk && institutionOk) {
+                        i.style.display = '';
+                        for (let y=+i.dataset.start; y <= +i.dataset.end; y++) {
+                            inc(years, +y);
+                        }
+                        inc(institutions, i.dataset.institution);
+                        total++;
+                    } else {
+                        i.style.display = 'none';
+                    }
+                })
+                console.log(years, institutions)
+
+                // update counts, hide if filtered && count == 0
+                const filtered = ((filters.year.size + filters.institution.size) > 0);
+                all("button.yfilter").forEach(b => {
+                    const k = b.dataset.year;
+                    b.style.display = (filtered && getz(years, +k, 0) == 0) ? 'none' : '';                  
+                    b.querySelector(".projcount").textContent =
+                        `(${filtered ? getz(years, +k, 0) + "/" : ""}${counts.year.get(+k)})`;
+                });
+                all("button.ifilter").forEach(b => {
+                    const k = b.dataset.institution;
+                    b.style.display = (filtered && getz(institutions, k, 0) == 0) ? 'none' : '';
+                    b.querySelector(".projcount").textContent =
+                        `(${filtered ? getz(institutions, k, 0) + "/" : ""}${counts.institution.get(k)})`;
+                });
+
+                // update project count
+                one("h2.projcount").textContent = last_lang === "es" ? 
+                  `Mostrando ${total} proyect${total == 1 ? "o" : "os"}` : 
+                  `Showing ${total} project${total == 1 ? "" : "s"}`;
+            }
+
+            // highlight years & institutions when hovering over project
+            function mouse_enter_proj(e) {
+                const proj = e.target
+                const institution = proj.dataset.institution
+                const buttons = [ 
+                    ...all(`button.ifilter[data-institution="${institution}"]`)
+                ]
+                buttons.forEach(b => b.classList.add("in_proj"))
+                for (let y = +proj.dataset.start; y <= +proj.dataset.end; y++) {
+                    all(`button.yfilter[data-year="${y}"]`).forEach(b => b.classList.add("in_proj"))
+                }
+            }
+            function mouse_leave_proj(e) {
+                all("div.filters button").forEach(b => b.classList.remove("in_proj"))
+            }
+
+            // update filtering buttons/information after click, and finally refilter
+            function filter_click(event) {
+                const target = event.target.nodeName.toLowerCase() === 'span' ?
+                    event.target.parentNode : event.target;
+                let element = undefined;
+                let filter = undefined;
+                if (target.classList.contains("yfilter")) {
+                    element = target.dataset.year;
+                    filter = filters.year;
+                } else if (target.classList.contains("ifilter")) {
+                    element = target.dataset.institution;
+                    filter = filters.institution;
+                }
+
+                if (element !== undefined) {
+                    if (filter.has(element)) {
+                        filter.delete(element);
+                        target.classList.remove("fset")
+                    } else {
+                        filter.add(element);
+                        target.classList.add("fset")
+                    }
+                } else {
+                    console.log("Ignoring stray click on: ", target)
+                }
+                do_filter()
+            }
+
+            // generate filter buttons for institutions, ordered by project counts
+            function populate_institutions(institutions_div) {
+                const unsorted = []
+                const lookup = {}
+                for (let [k, i] of Object.entries(institutions)) {
+                    let n = 0;
+                    lookup[i] = k
+                    all("div.project").forEach(
+                        o => {
+                          if (o.dataset.institution.indexOf(i) >= 0) {
+                            n++;
+                          }
+                        })
+                    counts.institution.set(i, n)
+                    unsorted.push({ n, i })
+                }
+                unsorted.sort((a, b) => b.n - a.n)
+                institutions_div.insertAdjacentHTML("beforeend",
+                    unsorted.map(o =>
+                        `<button class="ifilter" data-institution=${o.i}>${lookup[o.i]} <span class="projcount"></span></button>`)
+                        .join(' '));
+                all("button.ifilter").forEach(o => o.addEventListener("click", filter_click))
+            }
+
+            // generate filter buttons for years with projects, ordered by project counts
+            function populate_years(years_div) {
+                all("div.project").forEach(i => {
+                  for (let y = +i.dataset.start; y <= +i.dataset.end; y++) {
+                    inc(counts.year, y);
+                  }
+                });
+                const unsorted = []
+                for (let [y, n] of counts.year.entries())
+                    unsorted.push({ y, n })
+                unsorted.sort((a, b) => b.y - a.y)
+                years_div.insertAdjacentHTML("beforeend",
+                    unsorted.map(o =>
+                        `<button class="yfilter" data-year=${o.y}>${o.y} <span class="projcount"></span></button>`)
+                        .join(' '));
+                all("button.yfilter").forEach(o => o.addEventListener("click", filter_click))
+            }
+
+            function select_language(lang) {
+                last_lang = lang;
+                if (lang == "es") {
+                    one("#go_es").classList.add("selected")
+                    one("#go_en").classList.remove("selected")
+                } else {
+                    one("#go_en").classList.add("selected")
+                    one("#go_es").classList.remove("selected")
+                }
+                all(".en").forEach(e => e.style.display = (lang == "en") ? "" : "none")
+                all(".es").forEach(e => e.style.display = (lang == "es") ? "" : "none")
+                do_filter()
+            }
+
+            // populates filters when page is fully loaded, starts interaction
+            window.addEventListener("load", () => {
+                select_language("en")
+                one("#go_en").addEventListener("click", () => select_language("en"))
+                one("#go_es").addEventListener("click", () => select_language("es"))
+
+                populate_institutions(one("div.institutions"))
+                populate_years(one("div.years"))
+                do_filter()
+                all("div.project").forEach(i => {
+                    i.addEventListener('mouseenter', mouse_enter_proj)
+                    i.addEventListener('mouseleave', mouse_leave_proj)
+                })
+            })
+        }
+    </script>
+    <style>
+        div.project {
+            padding-top: 1em;
+        }
+
+        div.project:not(:first-child) {
+            border-top: 1px solid #ccc;
+        }
+
+        div.project.header {
+            display: block;
+        }
+
+        div.project a {
+            text-decoration: none;
+        }
+
+        div.project span.title {  
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        div.project span.name {
+            color: #555;
+            display:block;
+        }   
+
+        div.project span.f_amount {
+            display: block;
+        }
+
+        div.project span.comments {
+            display: none;
+        }
+        
+        div.filters {
+            margin-left: 10px;
+        }
+
+        div.filters>div {
+            display: flex;
+            flex-direction: column;
+        }
+
+        div.filters button {
+            background-color: #eee;
+            border-radius: 4px;
+            border-style: inherit;
+            margin: 2px;
+            text-align: start;
+        }
+
+        div.filters button span.projcount {
+            color: #777;
+        }
+
+        div.filters button:hover {
+            background-color: #aaa;
+        }
+
+        div.filters button.in_proj {
+            font-weight: bold;
+        }
+
+        div.filters button.fset {
+            background-color: lightgreen;
+        }
+
+        body {
+            display: flex;
+            flex-direction: row-reverse;
+        }
+
+        div.filters {
+            flex-basis: 20%;
+        }
+
+        div.projects {
+            flex-basis: 80%;
+        }
+
+        .container {
+            display: flex;
+            width: 100%;
+            max-width: 100%;
+            height: 100vh;
+            /* Adjust based on your layout */
+        }
+
+        .filters {
+            position: sticky;
+            top: 0;
+            flex: 0 0 18%;
+            /* Keeps width to 18%, adjust as necessary */
+            height: 100vh;
+            /* Adjust based on your layout */
+            overflow-y: auto;
+            /* Makes this section scrollable */
+            z-index: 1000;
+            background-color: white;
+        }
+
+        .projects {
+            flex: 1;
+            /* Takes up the rest of the space */
+            overflow-y: auto;
+            /* Makes this section scrollable */
+            padding: 20px;
+            /* Adjust as necessary for spacing */
+        }
+
+        .lang-btn {
+            font-size: 1.5em;
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+        .lang-btn.selected{
+            border: none;
+            border-bottom: 2px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="filters">
+
+            <button class="lang-btn" id="go_en">🇬🇧</button>
+            <button class="lang-btn" id="go_es">🇪🇸</button>
+            <h2 class="es">Filtrar por Grupo / Institución</h2>
+            <h2 class="en">Filter by Group / Institution</h2>
+            <div class="institutions"></div>
+            <h2 class="es">Filtrar por Fechas</h2>
+            <h2 class="en">Filter by Dates</h2>
+            <div class="years"></div>
+        </div>
+        <div class="projects">
+            <h2 class="projcount"></h2>
+            <ul>
+$PROJECTS_GO_HERE$
+            </ul>
+        </div>
+    </div>
+</body>
+
+</html>

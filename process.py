@@ -69,6 +69,9 @@ def prettify(html, output_file, template_file):
         tag.unwrap()
     for tag in doc.find_all('h4'):
         tag.unwrap()
+        
+    # project dictionary
+    project_codes = {}
        
     # add institution to project divs
     for tag in doc.find_all('table'):
@@ -93,6 +96,24 @@ def prettify(html, output_file, template_file):
             continue
         else:
             print(f"==> Found project for {group_names[who]}")
+            
+        # detect project code
+        code = tag.find('tr', 'code')
+        if code is None:
+          print(f"NO CODE FOR {tag}")
+          break
+        t = code.text.strip().upper()
+        code.string = t # ensure upper-case
+        if not t in project_codes:
+          # save for future reference
+          project_codes[t] = tag
+        else:
+          # we add the group-institution to original, and detach & skip this tag
+          print("DUPLICATE DETECTED -- ENGAGE FALLBACK")
+          prev = project_codes[t]
+          prev['data-institution'] = f"{prev['data-institution']},{tag['data-institution']}"
+          tag.extract()
+          break
         
         print(f"\tFinding ES/EN alternatives")
         for part in tag.find_all('tr'):
@@ -123,12 +144,23 @@ def prettify(html, output_file, template_file):
                     part.name = 'span'
             else:
                 part.name = 'span'        
-        
+
+        # wrap title span in a header div        
         title = tag.find('span', 'title')
-        print(f"\tFound {title}")
         header = title.wrap(doc.new_tag("div"))
         header.attrs = {'class': ['header']}
-                
+        
+        # fix time-period
+        period = tag.find('span', 'period')
+        t = period.text.strip()
+        time_parts = re.match(r'([0-9]+)[^0-9]([0-9]+)[^0-9]([0-9]+)[^0-9]+([0-9]+)[^0-9]([0-9]+)[^0-9]([0-9]+)', t)
+        if time_parts is not None:          
+          tag['data-start'] = time_parts.group(3)
+          tag['data-end'] = time_parts.group(6)
+        else:
+          print(f"NO DICE -- missing dates for {title}")
+
+        # fix URLs, which may be multiple or entirely missing
         for u in tag.find_all('span', 'url'):
           t = u.text.strip()
           if len(t) == 0: continue
@@ -152,8 +184,12 @@ def prettify(html, output_file, template_file):
         if (tag.attrs.get('class') == 'project'):
             if (tag.attrs.get('data-group') != 'ejemplo'):
                 counter += 1
-                project_divs.append(tag.prettify())
-                    
+                project_divs.append(tag)
+    project_divs.sort(key=titles)
+    sorted_divs = []
+    for div in project_divs:
+        sorted_divs.append(div.prettify())
+                        
     # output using template
     with open(template_file, 'r') as template_f:
         template = template_f.read()
@@ -164,11 +200,14 @@ def prettify(html, output_file, template_file):
     template = template.replace("$INSTITUTIONS_GO_HERE$",
       json.dumps(institution_names, sort_keys=True, indent=4,ensure_ascii=False))
     
-    template = template.replace("$PROJECTS_GO_HERE$", "\n".join(project_divs))
+    template = template.replace("$PROJECTS_GO_HERE$", "\n".join(sorted_divs))
     with open(output_file, 'w') as output_f:
         output_f.write(template)                    
 
     print(f"File saved as {output_file} with {counter} projects")
+
+def titles(x):
+    return x.find('span', 'title').text.strip().upper()
 
 if __name__ == '__main__':      
     parser = argparse.ArgumentParser(description=\
