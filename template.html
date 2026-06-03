@@ -186,6 +186,13 @@
 
             // populates filters when page is fully loaded, starts interaction
             window.addEventListener("load", () => {
+                all("div.project[collab]").forEach(p => {
+                  const icon = document.createElement('span')
+                  icon.innerHTML = "🤝"
+                  icon.setAttribute('title', p.getAttribute('collab'));
+                  p.querySelector('span.title').append(icon)                  
+                })
+
                 select_language("en")
                 one("#go_en").addEventListener("click", () => select_language("en"))
                 one("#go_es").addEventListener("click", () => select_language("es"))

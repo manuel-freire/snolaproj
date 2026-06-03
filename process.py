@@ -6,6 +6,7 @@ import argparse
 import sys, re
 import time, datetime
 import json
+import os
 from subprocess import call
 
 fields = [
@@ -17,6 +18,13 @@ fields = [
     'f_amount',
     'period',
     'comments']
+
+def mklist(tag, key):
+    if tag.has_attr(key):
+      print(" --*-- ")
+      return f"{tag[key]},"
+    else:
+      return ""
 
 def prettify(html, output_file, template_file):
     doc = bs.BeautifulSoup(html, 'html.parser')
@@ -105,8 +113,18 @@ def prettify(html, output_file, template_file):
         t = code.text.strip().upper()
         code.string = t # ensure upper-case
         if not t in project_codes:
+          # check to see if project merits "collaboration" tag
+          for k in project_codes:            
+            prefix_len = len(os.path.commonprefix([list(t),list(k)]))
+            if prefix_len > 16:
+              # mark both as collab
+              print(f"\t\t ** FOUND COLLAB {k} & {t}")
+              tag['collab'] = f"{mklist(tag, "collab")}{k}"
+              opt = project_codes[k]
+              opt['collab'] = f"{mklist(opt, "collab")}{t}"
+              print(f"\t\t {tag.get('collab')} & {opt.get('collab')}")
           # save for future reference
-          project_codes[t] = tag
+          project_codes[t] = tag    
         else:
           # we add the group-institution to original, and detach & skip this tag
           print("DUPLICATE DETECTED -- ENGAGE FALLBACK")
